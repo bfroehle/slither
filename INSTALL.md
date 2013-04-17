@@ -6,17 +6,17 @@ Building Python
 
 1. Download and extract the CPython 2.7.3 source.
 
-    wget http://python.org/ftp/python/2.7.3/Python-2.7.3.tar.bz2
-    tar xf Python-2.7.3.tar.bz2
-    cd Python-2.7.3
+        wget http://python.org/ftp/python/2.7.3/Python-2.7.3.tar.bz2
+        tar xf Python-2.7.3.tar.bz2
+        cd Python-2.7.3
 
 2. Apply the Python patch.
 
-    patch -p1 < ${SLITHER_DIR}/patches/python-2.7.3.patch
+        patch -p1 < ${SLITHER_DIR}/patches/python-2.7.3.patch
 
 3. Configure Python. At a minumum you'll need the following arguments:
 
-    ./configure --prefix=[...] --disable-shared SO=.a DYNLOADFILE=dynload_redstorm.o
+        ./configure --prefix=[...] --disable-shared SO=.a DYNLOADFILE=dynload_redstorm.o
 
 4. Copy `Modules/Setup.dist` to `Modules/Setup` and edit it, uncommenting
    all lines for modules which you would like to build into the base
@@ -24,8 +24,8 @@ Building Python
 
 5. Build and install Python.
 
-    make
-    make install
+        make
+        make install
 
 
 Using Slither
