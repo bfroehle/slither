@@ -8,7 +8,7 @@ slither supports byte-compiling Python module sources into
 
 In the most optimized configuration, Slither is capable of producing
 binaries which are entirely self-contained and strictly minimize the
-number of filesystem syscalls (i.e. `stat`s and `open`s).
+number of file system calls (i.e. `stat` and `open`).
 
 
 Rationale
@@ -16,11 +16,11 @@ Rationale
 
 While newer HPC systems do support dynamic libraries, the support
 remains unoptimized. Locating and loading each shared object can
-result in a lot of filesystem contention, especially for larger jobs
+result in a lot of file system contention, especially for larger jobs
 involving thousands of processors. This contention is also present in
 importing regular Python (`.py`) modules. Depending on the Python
-configuration, each imported module can require ten or more filesystem
-`stat`s.
+configuration, each imported module can require ten or more `stat`
+system calls.
 
 This contention manifests itself as a very long start up time --- the
 amount of time required for the Python interpreter to start and the

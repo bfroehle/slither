@@ -14,7 +14,7 @@ Building Python
 
         patch -p1 < ${SLITHER_DIR}/patches/python-2.7.3.patch
 
-3. Configure Python. At a minumum you'll need the following arguments:
+3. Configure Python. At a minimum you'll need the following arguments:
 
         ./configure --prefix=[...] --disable-shared SO=.a DYNLOADFILE=dynload_redstorm.o
 
@@ -45,7 +45,7 @@ following form:
     # Output executable name
     exe_name = mypython
 
-    # If True, avoid as many filesystem calls as possible.
+    # If True, avoid as many file system calls as possible.
     # Equivalent to setting PYTHONHOME=/dev/null and calling Python
     # with the -S and -s flags. Default is False.
     # deep_freeze = True
