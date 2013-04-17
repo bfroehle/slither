@@ -94,3 +94,5 @@ Resources
 * [BuildStatically](http://wiki.python.org/moin/BuildStatically)
 * [GPAW Cray XT5 Instructions](https://wiki.fysik.dtu.dk/gpaw/install/Cray/jaguar.html)
 * [cx_Freeze](http://cx-freeze.sourceforge.net/)
+* [MPI_Import](https://github.com/langton/MPI_Import)
+* [DLcache](https://www.nersc.gov/assets/userguide.txt)
