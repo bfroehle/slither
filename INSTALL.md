@@ -1,6 +1,9 @@
 Getting Started
 ===============
 
+Before getting started it may be helpful to see if there are any
+notes about your particular system in the `systems/` directory.
+
 Building Python
 ---------------
 
