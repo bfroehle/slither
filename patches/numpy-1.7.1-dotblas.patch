@@ -1,0 +1,17 @@
+diff --git a/numpy/core/setup.py b/numpy/core/setup.py
+index a1000ae..d75a23e 100644
+--- a/numpy/core/setup.py
++++ b/numpy/core/setup.py
+@@ -896,11 +896,7 @@ def configuration(parent_package='',top_path=None):
+     blas_info = get_info('blas_opt',0)
+     #blas_info = {}
+     def get_dotblas_sources(ext, build_dir):
+-        if blas_info:
+-            if ('NO_ATLAS_INFO',1) in blas_info.get('define_macros',[]):
+-                return None # dotblas needs ATLAS, Fortran compiled blas will not be sufficient.
+-            return ext.depends[:1]
+-        return None # no extension module will be built
++        return ext.depends[:1]
+ 
+     config.add_extension('_dotblas',
+                          sources = [get_dotblas_sources],

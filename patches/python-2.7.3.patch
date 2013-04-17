@@ -1,0 +1,147 @@
+diff --git a/Lib/distutils/ccompiler.py b/Lib/distutils/ccompiler.py
+index 7076b93..029ff5c 100644
+--- a/Lib/distutils/ccompiler.py
++++ b/Lib/distutils/ccompiler.py
+@@ -682,11 +682,36 @@ class CCompiler:
+                            runtime_library_dirs=None, export_symbols=None,
+                            debug=0, extra_preargs=None, extra_postargs=None,
+                            build_temp=None, target_lang=None):
+-        self.link(CCompiler.SHARED_OBJECT, objects,
+-                  output_filename, output_dir,
+-                  libraries, library_dirs, runtime_library_dirs,
+-                  export_symbols, debug,
+-                  extra_preargs, extra_postargs, build_temp, target_lang)
++        if output_dir is None:
++            (output_dir, output_filename) = os.path.split(output_filename)
++        output_fullname = os.path.join(output_dir, output_filename)
++        output_fullname = os.path.abspath(output_fullname)
++        linkline = "%s %s" % (output_filename[:-2], output_fullname)
++        for l in library_dirs:
++            linkline += " -L" + l
++        for l in libraries:
++            linkline += " -l" + l
++        old_fmt = self.static_lib_format
++        self.static_lib_format = "%s%.0s"
++        self.create_static_lib(objects, output_filename, output_dir, debug,
++                               target_lang)
++
++        self.static_lib_format = old_fmt
++        print "Append to Setup: ", linkline
++
++    def create_static_lib(self, objects, output_libname,
++                          output_dir=None, debug=0, target_lang=None):
++        objects, output_dir = self._fix_object_args(objects, output_dir)
++
++        output_filename = \
++            self.library_filename(output_libname, output_dir=output_dir)
++
++        if self._need_link(objects, output_filename):
++            self.mkpath(os.path.dirname(output_filename))
++            print self.archiver
++            self.spawn(['ar', '-cr', output_filename] + objects + self.objects)
++        else:
++            log.debug("skipping %s (up-to-date)", output_filename)
+ 
+     def link_executable(self, objects, output_progname, output_dir=None,
+                         libraries=None, library_dirs=None,
+diff --git a/Lib/distutils/unixccompiler.py b/Lib/distutils/unixccompiler.py
+index c49ac9b..62b7fa6 100644
+--- a/Lib/distutils/unixccompiler.py
++++ b/Lib/distutils/unixccompiler.py
+@@ -344,3 +344,25 @@ class UnixCCompiler(CCompiler):
+ 
+         # Oops, didn't find it in *any* of 'dirs'
+         return None
++
++    def link_shared_object(self, objects, output_filename, output_dir=None,
++                           libraries=None, library_dirs=None,
++                           runtime_library_dirs=None, export_symbols=None,
++                           debug=0, extra_preargs=None, extra_postargs=None,
++                           build_temp=None, target_lang=None):
++        if output_dir is None:
++            (output_dir, output_filename) = os.path.split(output_filename)
++        output_fullname = os.path.join(output_dir, output_filename)
++        output_fullname = os.path.abspath(output_fullname)
++        linkline = "%s %s" % (output_filename[:-2], output_fullname)
++        for l in library_dirs:
++            linkline += " -L" + l
++        for l in libraries:
++            linkline += " -l" + l
++        old_fmt = self.static_lib_format
++        self.static_lib_format = "%s%.0s"
++        self.create_static_lib(objects, output_filename, output_dir, debug,
++                               target_lang)
++
++        self.static_lib_format = old_fmt
++        print "Append to Setup: ", linkline
+diff --git a/Python/dynload_redstorm.c b/Python/dynload_redstorm.c
+new file mode 100644
+index 0000000..e81427c
+--- /dev/null
++++ b/Python/dynload_redstorm.c
+@@ -0,0 +1,19 @@
++
++/* This module provides the simulation of dynamic loading in Red Storm */
++
++#include "Python.h"
++#include "importdl.h"
++
++const struct filedescr _PyImport_DynLoadFiletab[] = {
++  {".a", "rb", C_EXTENSION},
++  {0, 0}
++};
++
++dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
++                                    const char *pathname, FILE *fp)
++{
++  struct _inittab *tab = PyImport_Inittab;
++  while (tab->name && strcmp(shortname, tab->name)) tab++;
++
++  return tab->initfunc;
++}
+diff --git a/configure b/configure
+index 3948080..0949f23 100755
+--- a/configure
++++ b/configure
+@@ -7580,7 +7580,6 @@ else
+         echo '+ Continuing in 10 seconds to let you to ponder.                    +'
+         echo '+                                                                   +'
+         echo '====================================================================='
+-	sleep 10
+ fi
+ { $as_echo "$as_me:${as_lineno-$LINENO}: result: $SO" >&5
+ $as_echo "$SO" >&6; }
+@@ -7787,8 +7786,8 @@ then
+ 	hp*|HP*)
+ 	    LINKFORSHARED="-Wl,-E -Wl,+s";;
+ #	    LINKFORSHARED="-Wl,-E -Wl,+s -Wl,+b\$(BINLIBDEST)/lib-dynload";;
+-	BSD/OS/4*) LINKFORSHARED="-Xlinker -export-dynamic";;
+-	Linux*|GNU*) LINKFORSHARED="-Xlinker -export-dynamic";;
++	BSD/OS/4*) LINKFORSHARED="";;
++	Linux*|GNU*) LINKFORSHARED="";;
+ 	# -u libsys_s pulls in all symbols in libsys
+ 	Darwin/*)
+ 		# -u _PyMac_Error is needed to pull in the mac toolbox glue,
+diff --git a/configure.in b/configure.in
+index 3f5b3b9..51a8df7 100644
+--- a/configure.in
++++ b/configure.in
+@@ -1772,7 +1772,6 @@ else
+         echo '+ Continuing in 10 seconds to let you to ponder.                    +'
+         echo '+                                                                   +'
+         echo '====================================================================='
+-	sleep 10
+ fi
+ AC_MSG_RESULT($SO)
+ 
+@@ -1969,8 +1968,8 @@ then
+ 	hp*|HP*)
+ 	    LINKFORSHARED="-Wl,-E -Wl,+s";;
+ #	    LINKFORSHARED="-Wl,-E -Wl,+s -Wl,+b\$(BINLIBDEST)/lib-dynload";;
+-	BSD/OS/4*) LINKFORSHARED="-Xlinker -export-dynamic";;
+-	Linux*|GNU*) LINKFORSHARED="-Xlinker -export-dynamic";;
++	BSD/OS/4*) LINKFORSHARED="";;
++	Linux*|GNU*) LINKFORSHARED="";;
+ 	# -u libsys_s pulls in all symbols in libsys
+ 	Darwin/*) 
+ 		# -u _PyMac_Error is needed to pull in the mac toolbox glue,

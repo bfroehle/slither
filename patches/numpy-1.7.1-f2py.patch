@@ -1,0 +1,13 @@
+diff --git a/numpy/f2py/src/fortranobject.h b/numpy/f2py/src/fortranobject.h
+index 283021a..8523b79 100644
+--- a/numpy/f2py/src/fortranobject.h
++++ b/numpy/f2py/src/fortranobject.h
+@@ -9,7 +9,7 @@ extern "C" {
+ #ifdef FORTRANOBJECT_C
+ #define NO_IMPORT_ARRAY
+ #endif
+-#define PY_ARRAY_UNIQUE_SYMBOL PyArray_API
++#define PY_ARRAY_UNIQUE_SYMBOL _npy_f2py_PyArray_API
+ #include "numpy/arrayobject.h"
+ 
+ /*

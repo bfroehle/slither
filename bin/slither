@@ -1,0 +1,460 @@
+#!/usr/bin/env python
+"""
+Create a statically compiled Python binary.
+
+Usage: slither binary.conf
+"""
+#-----------------------------------------------------------------------------
+# Copyright (c) 2013, Bradley M. Froehle
+#
+# Distributed under the terms of the Modified BSD License.
+#
+# The full license is in the file COPYING.txt, distributed with this software.
+#-----------------------------------------------------------------------------
+
+from __future__ import print_function
+
+import __builtin__
+from distutils import sysconfig
+import itertools
+import imp
+import marshal
+import os
+import pipes
+import subprocess
+import sys
+from ConfigParser import SafeConfigParser
+
+class FauxPrint(object):
+    """An object to be used like print()."""
+    def __init__(self):
+        self.output = []
+
+    def print(self, *args, **kw):
+        sep = kw.pop('sep', ' ')
+        end = kw.pop('end', '\n')
+        file = kw.pop('file', sys.stdout)
+        flush = kw.pop('flush', False)
+
+        line = sep.join(str(a) for a in args) + end
+        if file == sys.stdout:
+            self.output.append(line)
+        else:
+            file.write(line)
+            if flush:
+                file.flush()
+
+class PyMainSourceBuilder(object):
+    """Prepare the C source code for a static Python binary.
+
+    Basic Features:
+    - Extension modules:
+        Add pointers to the C extension module initialization functions
+        to the Python Inittab array. Also create frozen bootstrap code if
+        necessary.
+
+    - Frozen modules:
+        Byte-compile the Python module source and store within the
+        executable
+
+    - Python path:
+        For non-frozen paths, ensure that the path is added to `PYTHONPATH`
+        at runtime.
+
+    Options:
+    - Deep freeze:
+        Attempt to limit filesystem accesses by setting `PYTHONHOME` to
+        `/dev/null` and not importing user or system site folders.
+"""
+
+    def __init__(self):
+        self.frozen_modules = {}
+        self.extension_modules = {}
+        self.nonfrozen_paths = []
+        self.deep_freeze = False
+
+    def add_frozen_module(self, path, fqmodule, codestring=None, is_package=False):
+        """Add a frozen module to the registry.
+
+        If codestring is not provided, read the Python code from the
+        provided path.
+        """
+        if fqmodule in self.frozen_modules:
+            raise RuntimeError("%s is already frozen" % fqmodule)
+
+        if codestring is None:
+            with open(path, 'U') as f:
+                codestring = f.read()
+
+        try:
+            codeobject = __builtin__.compile(codestring, path, 'exec', dont_inherit=True)
+        except SyntaxError:
+            print("Skipping %s (SyntaxError)" % fqmodule)
+            return
+        code = marshal.dumps(codeobject)
+        if is_package:
+            size = -len(code)
+        else:
+            size = len(code)
+        self.frozen_modules[fqmodule] = {'code': code, 'size': size, 'is_package': is_package}
+
+    def add_extension_module(self, path, fqmodule, bootstrap=True):
+        """Add an extension module to the registry.
+
+        If bootstrap is True, add frozen Python bootstrap code
+        which may be necessary in some builds.
+        """
+
+        module = fqmodule.rpartition('.')[-1]
+        if module in self.extension_modules:
+            raise RuntimeError("Extension module %s conflicts with existing module." % fqmodule)
+        self.extension_modules[module] = path
+
+        # Bootstrap loader
+        if bootstrap:
+            codestring = \
+"""
+def __bootstrap__():
+    global __bootstrap__, __loader__, __file__
+    import imp
+    __loader__ = None; del __bootstrap__, __loader__
+    imp.load_dynamic(__name__, %r)
+__bootstrap__()
+""" % path
+            codeobject = __builtin__.compile(codestring, path, 'exec', dont_inherit=True)
+            code = marshal.dumps(codeobject)
+            self.frozen_modules[fqmodule] = {'code': code, 'size': len(code), 'is_package': False}
+
+    def add_path(self, path, freeze=True, excludes=None):
+        """Main entry hook.
+
+        Recursively add all modules within `path` to the registry. If provided,
+        excludes is a list of files and packages (i.e., directories) which
+        should be excluded.
+        """
+        excludes = [os.path.join(path, exclude) for exclude in excludes or []]
+
+        if not freeze:
+            self.nonfrozen_paths.append(path)
+
+        for root, dirs, files in os.walk(path):
+            if root in excludes:
+                dirs[:] = []
+                continue
+
+            for d in list(dirs):
+                if not self._is_package(os.path.join(root, d)):
+                    dirs.remove(d)
+
+            for f in files:
+                if os.path.join(root, f) in excludes:
+                    continue
+                filename = os.path.join(root, f)
+                assert filename.startswith(path)
+                if filename in excludes:
+                    continue
+
+                if f.startswith('#') or f.startswith('.#'):
+                    continue
+
+                if f.endswith('.py') and freeze:
+                    fqmodule = filename[len(path):-len('.py')] \
+                      .replace(os.path.sep, '.') \
+                      .strip('.')
+                    if fqmodule.endswith('.__init__'):
+                        fqmodule = fqmodule[:-len('.__init__')]
+                        self.add_frozen_module(filename, fqmodule, is_package=True)
+                    else:
+                        self.add_frozen_module(filename, fqmodule)
+                elif f.endswith('.a'):
+                    fqmodule = filename[len(path):-len('.a')] \
+                      .replace(os.path.sep, '.') \
+                      .strip('.')
+                    self.add_extension_module(filename, fqmodule, bootstrap=freeze)
+
+    def get_c_lines(self):
+        """Get the lines of the C source code."""
+
+        extension_modules = sorted(self.extension_modules.keys())
+        frozen_modules = sorted(self.frozen_modules.items())
+
+        M_ = lambda fqdn: 'M_' + fqdn.replace('.', '_')
+
+        faux = FauxPrint()
+        print = faux.print
+
+        print('/* Minimal main program -- everything is loaded from the library */')
+        print()
+        print('#include "Python.h"')
+        print()
+        print('#ifdef __FreeBSD__')
+        print('#include <floatingpoint.h>')
+        print('#endif')
+        print()
+
+        print('#ifdef __cplusplus')
+        print('extern "C" {')
+        print('#endif')
+        print()
+        for m in sorted(self.extension_modules.keys()):
+            print("extern void init" + m + "(void);")
+        print()
+        print('#ifdef __cplusplus')
+        print('}')
+        print('#endif')
+
+        print()
+        print('static struct _inittab _Slither_Inittab[] = {')
+        for m in extension_modules:
+            print('    {"' + m + '", init' + m + '},')
+        print('    {0, 0} /* Sentinel */')
+        print('};')
+
+        for m, v in frozen_modules:
+            print()
+            print('static unsigned char ' + M_(m) + '[] = {')
+            for l in self._grouper(16, v['code']):
+                print('    ' + ','.join([str(ord(c)) for c in l if c is not None]) + ',')
+            print('};')
+
+        print()
+        print('static struct _frozen _Slither_FrozenModules[] = {')
+        for m, v in frozen_modules:
+            print('    {"' + m + '", ' + M_(m) + ', ' + str(v['size']) + '},')
+        print('    {0, 0, 0} /* Sentinel */')
+        print('};')
+
+        print()
+        print('int')
+        print('main(int argc, char **argv)')
+        print('{')
+        print('    /* 754 requires that FP exceptions run in "no stop" mode by default,')
+        print('     * and until C vendors implement C99\'s ways to control FP exceptions,')
+        print('     * Python requires non-stop mode.  Alas, some platforms enable FP')
+        print('     * exceptions by default.  Here we disable them.')
+        print('     */')
+        print('#ifdef __FreeBSD__')
+        print('    fp_except_t m;')
+        print()
+        print('    m = fpgetmask();')
+        print('    fpsetmask(m & ~FP_X_OFL);')
+        print('#endif')
+        print('    PyImport_FrozenModules = _Slither_FrozenModules;')
+        print('    PyImport_ExtendInittab(_Slither_Inittab);')
+
+        if self.nonfrozen_paths:
+            print()
+            print('    char *oldpath = getenv("PYTHONPATH");')
+            print('    static char *appendpath = "%s";' % ':'.join(self.nonfrozen_paths))
+            print('    if (!oldpath)')
+            print('    {')
+            print('        setenv("PYTHONPATH", appendpath, 1);')
+            print('    }')
+            print('    else')
+            print('    {')
+            print('        int len = strlen(oldpath) + 1 + strlen(appendpath) + 1;')
+            print('        char *newpath = malloc(len);')
+            print('        if (newpath == NULL) { fprintf(stderr, "malloc error"); exit(-1); }')
+            print('        snprintf(newpath, len, "%s:%s", oldpath, appendpath);')
+            print('        setenv("PYTHONPATH", newpath, 1);')
+            print('        free(newpath);')
+            print('    }')
+
+        if self.deep_freeze:
+            print()
+            print('    setenv("PYTHONHOME", "/dev/null", 1);')
+            print('    Py_NoUserSiteDirectory++;')
+            print('    Py_NoSiteFlag++;')
+        else:
+            print()
+            print('    setenv("PYTHONHOME", "' + sysconfig.PREFIX + '", 0);')
+
+        print()
+        print('    return Py_Main(argc, argv);')
+        print('}')
+
+        return faux.output
+
+    def write(self, filename):
+        """Write the C code output to the filename."""
+        lines = self.get_c_lines()
+        with open(filename, 'w') as f:
+            f.writelines(lines)
+
+    # Utilities
+    @staticmethod
+    def _grouper(n, iterable, fillvalue=None):
+        "Collect data into fixed-length chunks or blocks"
+        # grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx
+        args = [iter(iterable)] * n
+        return itertools.izip_longest(fillvalue=fillvalue, *args)
+
+    @staticmethod
+    def _is_package(path):
+        """Is the given path a Python package?"""
+        return any(os.path.isfile(os.path.join(path, '__init__' + s[0]))
+                   for s in imp.get_suffixes())
+
+
+class StaticPythonBuilder(object):
+    """Build a static Python binary.
+
+    >>> bld = StaticPythonBuilder()
+    >>> bld.add_standard_library(...)
+    >>> bld.add_path(...)
+    >>> bld.write(); bld.compile(); bld.link()
+
+    or
+
+    >>> bld = StaticPythonBuilder.from_conf_file(filename)
+    >>> bld.write(); bld.compiler(); bld.link()
+
+    """
+    def __init__(self, exe_name='a.out', compiler=None, linker=None):
+        self.p = PyMainSourceBuilder()
+        self.compiler = compiler or ['cc']
+        self.linker = linker or ['cc']
+
+        self.exe_name = exe_name
+        self.extra_compile_args = []
+        self.extra_link_args = []
+        self.python_link_args = []
+
+    def add_standard_library(self, freeze=True, libpython=None, excludes=None,
+                             python_link_args=None, deep_freeze=None):
+        """Add standard library."""
+        # Add the standard library
+        PREFIX = sysconfig.PREFIX
+        VERSION = sysconfig.get_config_var('VERSION')
+        self.p.add_path(PREFIX + '/lib/python' + VERSION, freeze=freeze, excludes=excludes)
+        
+        if libpython is None:
+            libpython = sysconfig.PREFIX+'/lib/libpython'+sysconfig.get_config_var('VERSION')+'.a'
+
+        self.python_link_args += ([libpython]
+                                  + sysconfig.get_config_var('LIBS').split()
+                                  + sysconfig.get_config_var('MODLIBS').split()
+                                  + sysconfig.get_config_var('SYSLIBS').split())
+
+        if python_link_args is not None:
+            self.python_link_args += python_link_args
+
+        self.python_link_args += sysconfig.get_config_var('LDLAST').split()
+
+        self.extra_compile_args += (['-I' + sysconfig.get_python_inc(),
+                                     '-I' + sysconfig.get_python_inc(True)]
+                                    + sysconfig.get_config_var('CFLAGS').split())
+
+        if deep_freeze is not None:
+            self.p.deep_freeze = deep_freeze
+
+    def add_path(self, path, freeze=True, excludes=None, extra_link_args=None):
+        """Add all Python modules within a path, recording additional link arguments."""
+        self.p.add_path(path, freeze=freeze, excludes=excludes)
+        if extra_link_args is not None:
+            self.extra_link_args += extra_link_args
+
+    @classmethod
+    def from_conf_file(cls, filename):
+        """Parse a configuration file."""
+
+        cfg = SafeConfigParser()
+        cfg.read(filename)
+
+        def cfgget(section, option, default):
+            if cfg.has_option(section, option):
+                return cfg.get(section, option)
+            else:
+                return default
+
+        def cfggetboolean(section, option, default):
+            if cfg.has_option(section, option):
+                return cfg.getboolean(section, option)
+            else:
+                return default
+
+        bld = cls(exe_name=cfgget('python', 'exe_name', None),
+                  compiler=cfgget('python', 'compiler', '').split(),
+                  linker=cfgget('python', 'linker', '').split(),
+                  )
+
+        # Add Python standard library.
+        bld.add_standard_library(freeze=cfggetboolean('python', 'freeze', True),
+                                 libpython=cfgget('python', 'libpython', None),
+                                 excludes=cfgget('python', 'excludes', '').split(),
+                                 python_link_args=cfgget('python', 'extra_link_args', '').split(),
+                                 deep_freeze=cfggetboolean('python', 'deep_freeze', None)
+                                 )
+
+        # Add additional paths
+        for section in cfg.sections():
+            if section == 'python':
+                continue
+            if not cfg.has_option(section, 'path'):
+                print("WARNING: path not provided in %s section" % section)
+                continue
+
+            path = cfg.get(section, 'path')
+            path = os.path.expanduser(path)
+            if not os.path.exists(path):
+                print("WARNING: path %s does not exist" % path)
+                continue
+
+            # In case extra_link_args refers to %(path)s, expand out the ~.
+            cfg.set(section, 'path', path)
+            bld.add_path(path,
+                         freeze=cfggetboolean(section, 'freeze', True),
+                         excludes=cfgget(section, 'excludes', '').split(),
+                         extra_link_args=cfgget(section, 'extra_link_args', '').split()
+                         )
+        return bld
+
+    @property
+    def _c_name(self):
+        return self.exe_name + '.c'
+
+    @property
+    def _o_name(self):
+        return self.exe_name + '.o'
+
+    def write(self):
+        """Write source file."""
+        self.p.write(self.exe_name + '.c')
+
+    def compile(self):
+        """Compile source file."""
+        COMPILE = (self.compiler + ['-c', self._c_name, '-o', self._o_name]
+                   + self.extra_compile_args)
+        self.print_args(COMPILE)
+        subprocess.check_call(COMPILE)
+
+    def link(self):
+        """Link into python executable."""
+        PACKAGES = self.p.extension_modules.values()
+
+        LINK = (self.linker + ['-o', self.exe_name, self.exe_name + '.o']
+                + PACKAGES + self.extra_link_args + self.python_link_args)
+        self.print_args(LINK)
+        subprocess.check_call(LINK)
+
+    def cleanup(self):
+        """Remove temporary files."""
+        os.remove(self._c_name)
+        os.remove(self._o_name)
+    
+    @staticmethod
+    def print_args(args):
+        """Print a popen argument list in shell format."""
+        print(' '.join(pipes.quote(c) for c in args))
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: %s static_python.conf" % sys.argv[0])
+        sys.exit(1)
+
+    filename = sys.argv[1]
+    builder = StaticPythonBuilder.from_conf_file(filename)
+    builder.write()
+    builder.compile()
+    builder.link()
+    builder.cleanup()
