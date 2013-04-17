@@ -92,7 +92,10 @@ Resources
 ---------
 
 * [BuildStatically](http://wiki.python.org/moin/BuildStatically)
+* [GPAW Cray XT4/XT5 Instructions](https://wiki.fysik.dtu.dk/gpaw/install/Cray/louhi.html)
 * [GPAW Cray XT5 Instructions](https://wiki.fysik.dtu.dk/gpaw/install/Cray/jaguar.html)
+* [pyprop Cray XT4 Instructions](https://code.google.com/p/pyprop/wiki/Installation_CrayXT4)
 * [cx_Freeze](http://cx-freeze.sourceforge.net/)
 * [MPI_Import](https://github.com/langton/MPI_Import)
 * [DLcache](https://www.nersc.gov/assets/userguide.txt)
+* [Statically Linking Python](http://mdqinc.com/blog/2011/08/statically-linking-python-with-cython-generated-modules-and-packages/)
