@@ -93,3 +93,4 @@ Resources
 
 * [BuildStatically](http://wiki.python.org/moin/BuildStatically)
 * [GPAW Cray XT5 Instructions](https://wiki.fysik.dtu.dk/gpaw/install/Cray/jaguar.html)
+* [cx_Freeze](http://cx-freeze.sourceforge.net/)
