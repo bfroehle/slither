@@ -46,27 +46,24 @@ Method of Operation
 
 This project is composed of the following pieces.
 
-1. A custom Python 2.7.3 build:
+1. Build a custom Python 2.7.3 interpreter which contains a patched
+version of distutils.
 
-  * All Python standard library extensions are statically compiled
-    into the executable.
+2. Use the custom interpreter to build and install Python
+modules. Most modules can be built with little or no additional
+configuration.
 
-  * A patched verison of distutils which generates `.a` archives
-    instead of `.so` dynamic libraries.
-
-2. A command line tool `slither` which reads a configuration file
-   and compiles a custom Python intpreter.  Sample configuration
-   files can be found in the `examples/` directory.
-
+3. Use the `bin/slither` script to build custom, statically linked,
+Python interpreters which bake in Python module byte-code.
 
 Getting Started
-===============
+---------------
 
 Please see the `INSTALL.md` for installation instructions.
 
 
 Alternative Approaches
-======================
+----------------------
 
 Some tools have been developed to speed up Python startup times. For
 example, NERSC provides the DLcache and FMcache tools on Hopper.
