@@ -97,5 +97,7 @@ Resources
 * [pyprop Cray XT4 Instructions](https://code.google.com/p/pyprop/wiki/Installation_CrayXT4)
 * [cx_Freeze](http://cx-freeze.sourceforge.net/)
 * [MPI_Import](https://github.com/langton/MPI_Import)
+* [walla](https://bitbucket.org/wscullin/walla)
+* [collfs](https://github.com/ahmadia/collfs)
 * [DLcache](https://www.nersc.gov/assets/userguide.txt)
 * [Statically Linking Python](http://mdqinc.com/blog/2011/08/statically-linking-python-with-cython-generated-modules-and-packages/)
