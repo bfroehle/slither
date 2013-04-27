@@ -28,6 +28,7 @@ prerequisite modules to be imported. On one node, this is often under
 a minute and is generally ignorable.  On a hundred nodes this can
 take hours. See
 [Shared Library Performance on Hopper](https://cug.org/proceedings/attendee_program_cug2012/includes/files/pap124.pdf)
+([slides](https://cug.org/proceedings/attendee_program_cug2012/includes/files/pap124-file2.pdf))
 by Z. Zhao et al. and
 [Python in a Parallel Environment](http://www.nersc.gov/assets/Uploads/GroteNUG2013.pdf) by D. Grote.
 
