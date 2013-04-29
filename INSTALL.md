@@ -23,7 +23,8 @@ Building Python
 
 4. Copy `Modules/Setup.dist` to `Modules/Setup` and edit it, uncommenting
    all lines for modules which you would like to build into the base
-   Python library.
+   Python library.  You may with to look in the `systems/<hostname>` to see
+   if a `Modules/Setup` has already been customized for you system.
 
 5. Build and install Python.
 
